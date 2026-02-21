@@ -228,7 +228,10 @@ let isProcessing = false;
 function injectButton() {
   chrome.storage.local.get(['activationCode'], (result) => {
     // Apenas aparece se a extensão estiver ativa
-    if (!result.activationCode) return;
+    if (!result.activationCode) {
+      console.log('Lovable Improver: Sem código de ativação.');
+      return;
+    }
     
     const selectors = [
       'textarea',
@@ -236,22 +239,41 @@ function injectButton() {
       '.ProseMirror',
       '#prompt-textarea',
       '[data-testid="prompt-input"]',
-      'div[role="textbox"]'
+      'div[role="textbox"]',
+      '.chat-input',
+      'div[aria-label*="prompt"]',
+      'div[placeholder*="Peça a Lovable"]'
     ];
     
     let targetTextarea = null;
     for (const selector of selectors) {
       const elements = document.querySelectorAll(selector);
       if (elements.length > 0) {
-        // Pega o último elemento encontrado (geralmente o campo de chat ativo)
         targetTextarea = elements[elements.length - 1];
         break;
       }
     }
 
+    if (!targetTextarea) {
+      // Tenta encontrar por placeholder se falhar por seletor
+      const allDivs = document.querySelectorAll('div[contenteditable="true"]');
+      for (const div of allDivs) {
+        if (div.innerText.includes('Peça a Lovable') || div.getAttribute('placeholder')?.includes('Peça a Lovable')) {
+          targetTextarea = div;
+          break;
+        }
+      }
+    }
+
     if (!targetTextarea) return;
     
-    const container = targetTextarea.closest('div') || targetTextarea.parentElement;
+    // Encontra um container adequado que tenha espaço para o botão
+    let container = targetTextarea.closest('div');
+    while (container && container.offsetHeight < 40) {
+      container = container.parentElement;
+    }
+    
+    if (!container) container = targetTextarea.parentElement;
     if (!container || container.querySelector('.lovable-improver-btn')) return;
 
     const btn = document.createElement('button');
@@ -260,8 +282,8 @@ function injectButton() {
     btn.type = 'button';
     btn.title = 'Transformar em prompt profissional';
     
-    // Estilo elegante e não intrusivo para o Lovable
-    btn.style.cssText = 'position: absolute; bottom: 12px; right: 45px; background: #0f172a; color: white; border: 1px solid #334155; padding: 6px 12px; border-radius: 8px; cursor: pointer; z-index: 9999; font-size: 12px; font-weight: 600; font-family: sans-serif; display: flex; align-items: center; gap: 6px; transition: all 0.2s ease; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);';
+    // Estilo adaptativo e flutuante
+    btn.style.cssText = 'position: absolute; bottom: 10px; right: 50px; background: #0f172a; color: white; border: 1px solid #334155; padding: 6px 12px; border-radius: 8px; cursor: pointer; z-index: 99999; font-size: 12px; font-weight: 600; font-family: sans-serif; display: flex; align-items: center; gap: 6px; transition: all 0.2s ease; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);';
     
     btn.onmouseover = () => {
       btn.style.background = '#1e293b';
@@ -283,7 +305,11 @@ function injectButton() {
       if (isProcessing) return;
 
       const currentPrompt = (targetTextarea.value || targetTextarea.innerText || "").trim();
-      if (!currentPrompt) return;
+      if (!currentPrompt || currentPrompt.length < 3) {
+        btn.innerHTML = '<span>⚠️</span> Escreva algo';
+        setTimeout(() => btn.innerHTML = '<span>✨</span> Melhorar', 2000);
+        return;
+      }
 
       isProcessing = true;
       const originalHtml = btn.innerHTML;
@@ -304,11 +330,20 @@ function injectButton() {
             targetTextarea.value = newValue;
           } else {
             targetTextarea.innerText = newValue;
+            // Para contenteditable, às vezes precisa limpar e inserir
+            if (targetTextarea.hasAttribute('contenteditable')) {
+              targetTextarea.innerHTML = '';
+              const textNode = document.createTextNode(newValue);
+              targetTextarea.appendChild(textNode);
+            }
           }
           
-          // Dispara evento de input para o React/Vue do Lovable detectar a mudança
-          // SEM disparar Enter ou auto-envio
+          // Dispara eventos para o React detectar a mudança
           targetTextarea.dispatchEvent(new Event('input', { bubbles: true }));
+          targetTextarea.dispatchEvent(new Event('change', { bubbles: true }));
+          
+          // Foca de volta no campo
+          targetTextarea.focus();
         } else if (response && response.error) {
           console.error('Lovable Improver Error:', response.error);
           btn.innerHTML = '<span>❌</span> Erro';
@@ -321,15 +356,18 @@ function injectButton() {
   });
 }
 
-// Observer com debounce para não pesar no site e evitar loops
+// Observer mais agressivo para garantir que o botão apareça mesmo após navegação SPA
 let debounceTimer;
 const observer = new MutationObserver(() => {
   clearTimeout(debounceTimer);
-  debounceTimer = setTimeout(injectButton, 500);
+  debounceTimer = setTimeout(injectButton, 300);
 });
 
 observer.observe(document.body, { childList: true, subtree: true });
-setTimeout(injectButton, 2000);
+// Tenta injeção imediata e repetida nos primeiros segundos
+for (let i = 1; i <= 5; i++) {
+  setTimeout(injectButton, i * 1000);
+}
     `;
     archive.append(contentJs, { name: 'content.js' });
 

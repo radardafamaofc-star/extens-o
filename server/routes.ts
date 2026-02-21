@@ -1,5 +1,5 @@
 import type { Express } from "express";
-import { createServer, type Server } from "http";
+import { type Server } from "http";
 import { storage } from "./storage";
 import { setupAuth, registerAuthRoutes, isAuthenticated } from "./replit_integrations/auth";
 import { api } from "@shared/routes";
@@ -7,6 +7,12 @@ import { z } from "zod";
 import crypto from "crypto";
 import archiver from "archiver";
 import OpenAI from "openai";
+
+// Initialize OpenAI with Replit AI Integrations
+const openai = new OpenAI({
+  apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
+  baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
+});
 
 export async function registerRoutes(
   httpServer: Server,
@@ -65,7 +71,8 @@ export async function registerRoutes(
 
   // Dynamic extension download endpoint
   app.get('/api/extension/download', isAuthenticated, (req, res) => {
-    const hostUrl = \`https://\${req.get('host')}\`;
+    const protocol = req.headers['x-forwarded-proto'] || 'http';
+    const hostUrl = `${protocol}://${req.get('host')}`;
     
     res.attachment('lovable-improver-extension.zip');
     const archive = archiver('zip', { zlib: { level: 9 } });
@@ -83,7 +90,7 @@ export async function registerRoutes(
       "version": "1.0",
       "description": "Melhora prompts no Lovable usando IA",
       "permissions": ["storage", "activeTab", "scripting"],
-      "host_permissions": ["*://*.lovable.dev/*", "*://*.lovable.app/*", \`\${hostUrl}/*\`],
+      "host_permissions": ["*://*.lovable.dev/*", "*://*.lovable.app/*", `${hostUrl}/*`],
       "action": {
         "default_popup": "popup.html"
       },
@@ -99,8 +106,8 @@ export async function registerRoutes(
     }, null, 2), { name: 'manifest.json' });
 
     // background.js
-    const bgJs = \`
-const BACKEND_URL = "\${hostUrl}";
+    const bgJs = `
+const BACKEND_URL = "${hostUrl}";
 
 chrome.runtime.onInstalled.addListener(() => {
   chrome.storage.local.set({ backendUrl: BACKEND_URL });
@@ -145,11 +152,11 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true;
   }
 });
-    \`;
+    `;
     archive.append(bgJs, { name: 'background.js' });
 
     // popup.html
-    const popupHtml = \`<!DOCTYPE html>
+    const popupHtml = `<!DOCTYPE html>
 <html>
 <head>
   <meta charset="utf-8">
@@ -171,11 +178,11 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   <div id="status" class="status">Insira seu código gerado no painel.</div>
   <script src="popup.js"></script>
 </body>
-</html>\`;
+</html>`;
     archive.append(popupHtml, { name: 'popup.html' });
 
     // popup.js
-    const popupJs = \`
+    const popupJs = `
 document.addEventListener('DOMContentLoaded', () => {
   const codeInput = document.getElementById('activationCode');
   const saveBtn = document.getElementById('saveBtn');
@@ -210,11 +217,11 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     });
   }
-});\`;
+});`;
     archive.append(popupJs, { name: 'popup.js' });
 
     // content.js
-    const contentJs = \`
+    const contentJs = `
 function injectButton() {
   const textareas = document.querySelectorAll('textarea');
   if (textareas.length === 0) return;
@@ -267,7 +274,7 @@ const observer = new MutationObserver(() => {
 
 observer.observe(document.body, { childList: true, subtree: true });
 setTimeout(injectButton, 1000);
-    \`;
+    `;
     archive.append(contentJs, { name: 'content.js' });
 
     archive.finalize();
@@ -310,7 +317,6 @@ setTimeout(injectButton, 1000);
         return res.status(401).json({ message: "Invalid or expired activation code" });
       }
 
-      const openai = new OpenAI();
       const response = await openai.chat.completions.create({
         model: "gpt-4o",
         messages: [

@@ -56,7 +56,7 @@ export async function registerRoutes(
 
   app.post(api.codes.revoke.path, isAuthenticated, async (req, res) => {
     try {
-      const id = parseInt(req.params.id);
+      const id = parseInt(req.params.id as string);
       if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
       
       const code = await storage.getCodeById(id);
@@ -226,105 +226,106 @@ document.addEventListener('DOMContentLoaded', () => {
 let isProcessing = false;
 
 function injectButton() {
-  if (isProcessing) return;
-  
-  const selectors = [
-    'textarea',
-    '[contenteditable="true"]',
-    '.ProseMirror',
-    '#prompt-textarea',
-    '[data-testid="prompt-input"]'
-  ];
-  
-  let targetTextarea = null;
-  for (const selector of selectors) {
-    const elements = document.querySelectorAll(selector);
-    if (elements.length > 0) {
-      targetTextarea = elements[elements.length - 1];
-      break;
-    }
-  }
-
-  if (!targetTextarea) return;
-  
-  const container = targetTextarea.closest('div') || targetTextarea.parentElement;
-  if (!container || container.querySelector('.lovable-improver-btn')) return;
-
-  const btn = document.createElement('button');
-  btn.className = 'lovable-improver-btn';
-  btn.innerHTML = '<span>✨</span> Melhorar';
-  btn.type = 'button';
-  btn.title = 'Melhorar prompt com IA';
-  
-  // Minimalist styling to avoid breaking Lovable UI
-  btn.style.cssText = 'position: absolute; bottom: 12px; right: 45px; background: #0f172a; color: white; border: 1px solid #1e293b; padding: 5px 10px; border-radius: 8px; cursor: pointer; z-index: 9999; font-size: 12px; font-weight: 500; font-family: sans-serif; display: flex; align-items: center; gap: 4px; transition: all 0.2s ease;';
-  
-  btn.onmouseover = () => {
-    btn.style.background = '#1e293b';
-    btn.style.transform = 'scale(1.02)';
-  };
-  btn.onmouseout = () => {
-    btn.style.background = '#0f172a';
-    btn.style.transform = 'scale(1)';
-  };
-
-  if (window.getComputedStyle(container).position === 'static') {
-    container.style.position = 'relative';
-  }
-
-  btn.addEventListener('click', async (e) => {
-    e.preventDefault();
-    e.stopPropagation();
+  chrome.storage.local.get(['activationCode'], (result) => {
+    // Apenas aparece se a extensão estiver ativa
+    if (!result.activationCode) return;
     
-    if (isProcessing) return;
-
-    const currentPrompt = targetTextarea.value || targetTextarea.innerText;
-    if (!currentPrompt || currentPrompt.trim() === '') return;
-
-    isProcessing = true;
-    btn.innerHTML = '<span>⏳</span>...';
-    btn.style.opacity = '0.7';
-    btn.disabled = true;
-
-    chrome.runtime.sendMessage({ action: 'improvePrompt', prompt: currentPrompt.trim() }, (response) => {
-      btn.innerHTML = '<span>✨</span> Melhorar';
-      btn.style.opacity = '1';
-      btn.disabled = false;
-      isProcessing = false;
-      
-      if (response && response.improvedPrompt) {
-        const newValue = response.improvedPrompt;
-        
-        if (targetTextarea.tagName === 'TEXTAREA' || targetTextarea.tagName === 'INPUT') {
-          targetTextarea.value = newValue;
-        } else if (targetTextarea.hasAttribute('contenteditable')) {
-          targetTextarea.innerText = newValue;
-        }
-        
-        // Use a more standard way to trigger updates without auto-submitting
-        const inputEvent = new Event('input', { bubbles: true });
-        targetTextarea.dispatchEvent(inputEvent);
-        
-        // Avoid 'change' event as it often triggers auto-submit in some frameworks
-        // Only use 'input' which is enough for React/Vue to sync state
-      } else if (response && response.error) {
-        console.error('Lovable Improver Error:', response.error);
-        btn.innerHTML = '<span>❌</span> Erro';
-        setTimeout(() => {
-          btn.innerHTML = '<span>✨</span> Melhorar';
-        }, 3000);
+    const selectors = [
+      'textarea',
+      '[contenteditable="true"]',
+      '.ProseMirror',
+      '#prompt-textarea',
+      '[data-testid="prompt-input"]',
+      'div[role="textbox"]'
+    ];
+    
+    let targetTextarea = null;
+    for (const selector of selectors) {
+      const elements = document.querySelectorAll(selector);
+      if (elements.length > 0) {
+        // Pega o último elemento encontrado (geralmente o campo de chat ativo)
+        targetTextarea = elements[elements.length - 1];
+        break;
       }
-    });
-  });
+    }
 
-  container.appendChild(btn);
+    if (!targetTextarea) return;
+    
+    const container = targetTextarea.closest('div') || targetTextarea.parentElement;
+    if (!container || container.querySelector('.lovable-improver-btn')) return;
+
+    const btn = document.createElement('button');
+    btn.className = 'lovable-improver-btn';
+    btn.innerHTML = '<span>✨</span> Melhorar';
+    btn.type = 'button';
+    btn.title = 'Transformar em prompt profissional';
+    
+    // Estilo elegante e não intrusivo para o Lovable
+    btn.style.cssText = 'position: absolute; bottom: 12px; right: 45px; background: #0f172a; color: white; border: 1px solid #334155; padding: 6px 12px; border-radius: 8px; cursor: pointer; z-index: 9999; font-size: 12px; font-weight: 600; font-family: sans-serif; display: flex; align-items: center; gap: 6px; transition: all 0.2s ease; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);';
+    
+    btn.onmouseover = () => {
+      btn.style.background = '#1e293b';
+      btn.style.transform = 'translateY(-1px)';
+    };
+    btn.onmouseout = () => {
+      btn.style.background = '#0f172a';
+      btn.style.transform = 'translateY(0)';
+    };
+
+    if (window.getComputedStyle(container).position === 'static') {
+      container.style.position = 'relative';
+    }
+
+    btn.addEventListener('click', async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      
+      if (isProcessing) return;
+
+      const currentPrompt = (targetTextarea.value || targetTextarea.innerText || "").trim();
+      if (!currentPrompt) return;
+
+      isProcessing = true;
+      const originalHtml = btn.innerHTML;
+      btn.innerHTML = '<span>⏳</span>...';
+      btn.style.opacity = '0.7';
+      btn.disabled = true;
+
+      chrome.runtime.sendMessage({ action: 'improvePrompt', prompt: currentPrompt }, (response) => {
+        btn.innerHTML = originalHtml;
+        btn.style.opacity = '1';
+        btn.disabled = false;
+        isProcessing = false;
+        
+        if (response && response.improvedPrompt) {
+          const newValue = response.improvedPrompt;
+          
+          if (targetTextarea.tagName === 'TEXTAREA' || targetTextarea.tagName === 'INPUT') {
+            targetTextarea.value = newValue;
+          } else {
+            targetTextarea.innerText = newValue;
+          }
+          
+          // Dispara evento de input para o React/Vue do Lovable detectar a mudança
+          // SEM disparar Enter ou auto-envio
+          targetTextarea.dispatchEvent(new Event('input', { bubbles: true }));
+        } else if (response && response.error) {
+          console.error('Lovable Improver Error:', response.error);
+          btn.innerHTML = '<span>❌</span> Erro';
+          setTimeout(() => btn.innerHTML = originalHtml, 3000);
+        }
+      });
+    });
+
+    container.appendChild(btn);
+  });
 }
 
-// Debounced observer to prevent performance issues and infinite loops
-let timeout = null;
+// Observer com debounce para não pesar no site e evitar loops
+let debounceTimer;
 const observer = new MutationObserver(() => {
-  if (timeout) clearTimeout(timeout);
-  timeout = setTimeout(injectButton, 500);
+  clearTimeout(debounceTimer);
+  debounceTimer = setTimeout(injectButton, 500);
 });
 
 observer.observe(document.body, { childList: true, subtree: true });
@@ -376,24 +377,21 @@ setTimeout(injectButton, 2000);
         messages: [
           {
             role: "system",
-            content: `Você é um Engenheiro de Prompt de Elite especializado em IAs de desenvolvimento (Lovable, Cursor, v0, Bolt). 
-Sua missão é transformar prompts amadores em especificações técnicas de alto nível.
+            content: `Você é um Engenheiro de Prompt de Elite. Sua missão é transformar prompts amadores em especificações técnicas de alto nível para IAs como Lovable ou Cursor.
 
-DIRETRIZES PARA O PROMPT MELHORADO:
-1. ARQUITETURA: Especifique tecnologias modernas (React, Tailwind, Shadcn UI, Framer Motion, TypeScript).
-2. UI/UX: Descreva um design limpo, moderno, responsivo e com boas práticas de usabilidade.
-3. DETALHAMENTO: Adicione requisitos de funcionalidades, estados de carregamento e validações que o usuário esqueceu.
-4. ESTRUTURA: Organize o prompt em seções (Visão Geral, Funcionalidades, Estilo, Regras de Negócio).
-5. OBJETIVIDADE: Mantenha o tom técnico e direto. Evite papo furado.
-
-IMPORTANTE: Responda APENAS com o texto final do prompt melhorado. Não diga "Aqui está seu prompt" ou "Prompt melhorado:".`
+REGRAS DE OURO:
+1. ARQUITETURA: Especifique tecnologias (React, Tailwind, Lucide Icons, Shadcn).
+2. UI/UX: Descreva um design moderno, limpo e profissional.
+3. DETALHAMENTO: Adicione estados de erro, loading e responsividade que o usuário esqueceu.
+4. FORMATO: Divida em seções (Visão Geral, Funcionalidades Técnicas, Design).
+5. SILÊNCIO: Responda APENAS com o prompt melhorado, sem introduções.`
           },
           {
             role: "user",
-            content: `Melhore este prompt para torná-lo 100% profissional e técnico: \n\n${prompt}`
+            content: `Transforme este prompt em algo 100% profissional: \n\n${prompt}`
           }
         ],
-        temperature: 0.4, // Menos criatividade, mais precisão técnica
+        temperature: 0.3,
       });
 
       const improvedPrompt = response.choices[0].message.content?.trim() || prompt;

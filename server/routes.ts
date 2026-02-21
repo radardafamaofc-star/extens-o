@@ -97,7 +97,8 @@ export async function registerRoutes(
       "content_scripts": [
         {
           "matches": ["*://*.lovable.dev/*", "*://*.lovable.app/*"],
-          "js": ["content.js"]
+          "js": ["content.js"],
+          "run_at": "document_idle"
         }
       ],
       "background": {
@@ -155,30 +156,30 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     `;
     archive.append(bgJs, { name: 'background.js' });
 
-    // popup.html
-    const popupHtml = `<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <style>
-    body { font-family: sans-serif; padding: 15px; width: 250px; background: #f9fafb; margin: 0; }
-    h3 { margin-top: 0; font-size: 16px; color: #111827; }
-    input { width: 100%; padding: 8px; margin-bottom: 10px; box-sizing: border-box; border: 1px solid #d1d5db; border-radius: 6px; }
-    button { width: 100%; padding: 8px; background: #000; color: #fff; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; }
-    button:hover { background: #374151; }
-    .status { margin-top: 10px; font-size: 12px; color: #6b7280; text-align: center; }
-  </style>
-</head>
-<body>
-  <h3>Prompt Improver</h3>
-  <div id="setup">
-    <input type="text" id="activationCode" placeholder="Código de ativação">
-    <button id="saveBtn">Ativar Extensão</button>
-  </div>
-  <div id="status" class="status">Insira seu código gerado no painel.</div>
-  <script src="popup.js"></script>
-</body>
-</html>`;
+    // popup.html - Using string concatenation to avoid nested template literal issues
+    const popupHtml = '<!DOCTYPE html>\n' +
+'<html>\n' +
+'<head>\n' +
+'  <meta charset="utf-8">\n' +
+'  <style>\n' +
+'    body { font-family: sans-serif; padding: 15px; width: 250px; background: #f9fafb; margin: 0; }\n' +
+'    h3 { margin-top: 0; font-size: 16px; color: #111827; }\n' +
+'    input { width: 100%; padding: 8px; margin-bottom: 10px; box-sizing: border-box; border: 1px solid #d1d5db; border-radius: 6px; }\n' +
+'    button { width: 100%; padding: 8px; background: #000; color: #fff; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; }\n' +
+'    button:hover { background: #374151; }\n' +
+'    .status { margin-top: 10px; font-size: 12px; color: #6b7280; text-align: center; }\n' +
+'  </style>\n' +
+'</head>\n' +
+'<body>\n' +
+'  <h3>Prompt Improver</h3>\n' +
+'  <div id="setup">\n' +
+'    <input type="text" id="activationCode" placeholder="Código de ativação">\n' +
+'    <button id="saveBtn">Ativar Extensão</button>\n' +
+'  </div>\n' +
+'  <div id="status" class="status">Insira seu código gerado no painel.</div>\n' +
+'  <script src="popup.js"></script>\n' +
+'</body>\n' +
+'</html>';
     archive.append(popupHtml, { name: 'popup.html' });
 
     // popup.js
@@ -223,31 +224,48 @@ document.addEventListener('DOMContentLoaded', () => {
     // content.js
     const contentJs = `
 function injectButton() {
-  const textareas = document.querySelectorAll('textarea');
-  if (textareas.length === 0) return;
+  const selectors = [
+    'textarea',
+    '[contenteditable="true"]',
+    '.ProseMirror',
+    '#prompt-textarea'
+  ];
   
-  const targetTextarea = textareas[textareas.length - 1]; 
+  let targetTextarea = null;
+  for (const selector of selectors) {
+    const elements = document.querySelectorAll(selector);
+    if (elements.length > 0) {
+      targetTextarea = elements[elements.length - 1];
+      break;
+    }
+  }
+
+  if (!targetTextarea) return;
   
-  if (targetTextarea.parentElement.querySelector('.lovable-improver-btn')) return;
+  const container = targetTextarea.closest('div') || targetTextarea.parentElement;
+  if (!container || container.querySelector('.lovable-improver-btn')) return;
 
   const btn = document.createElement('button');
   btn.className = 'lovable-improver-btn';
   btn.innerText = '✨ Melhorar Prompt';
-  btn.style.cssText = 'position: absolute; bottom: 12px; right: 12px; background: #000; color: white; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer; z-index: 1000; font-size: 13px; font-weight: 500; font-family: sans-serif; box-shadow: 0 2px 4px rgba(0,0,0,0.1); transition: all 0.2s;';
+  btn.type = 'button';
+  btn.style.cssText = 'position: absolute; bottom: 8px; right: 40px; background: #000; color: white; border: none; padding: 4px 10px; border-radius: 6px; cursor: pointer; z-index: 10000; font-size: 11px; font-weight: 600; font-family: sans-serif; box-shadow: 0 2px 4px rgba(0,0,0,0.2); transition: all 0.2s;';
   
   btn.onmouseover = () => btn.style.background = '#333';
   btn.onmouseout = () => btn.style.background = '#000';
 
-  if (window.getComputedStyle(targetTextarea.parentElement).position === 'static') {
-    targetTextarea.parentElement.style.position = 'relative';
+  if (window.getComputedStyle(container).position === 'static') {
+    container.style.position = 'relative';
   }
 
   btn.addEventListener('click', (e) => {
     e.preventDefault();
-    const currentPrompt = targetTextarea.value;
-    if (!currentPrompt) return;
+    e.stopPropagation();
+    
+    const currentPrompt = targetTextarea.value || targetTextarea.innerText;
+    if (!currentPrompt || currentPrompt.trim() === '') return;
 
-    btn.innerText = '⏳ Melhorando...';
+    btn.innerText = '⏳...';
     btn.disabled = true;
 
     chrome.runtime.sendMessage({ action: 'improvePrompt', prompt: currentPrompt }, (response) => {
@@ -255,8 +273,14 @@ function injectButton() {
       btn.disabled = false;
       
       if (response && response.improvedPrompt) {
-        targetTextarea.value = response.improvedPrompt;
+        if (targetTextarea.tagName === 'TEXTAREA' || targetTextarea.tagName === 'INPUT') {
+          targetTextarea.value = response.improvedPrompt;
+        } else {
+          targetTextarea.innerText = response.improvedPrompt;
+        }
+        
         targetTextarea.dispatchEvent(new Event('input', { bubbles: true }));
+        targetTextarea.dispatchEvent(new Event('change', { bubbles: true }));
       } else if (response && response.error) {
         alert('Erro ao melhorar prompt: ' + response.error);
       } else {
@@ -265,15 +289,15 @@ function injectButton() {
     });
   });
 
-  targetTextarea.parentElement.appendChild(btn);
+  container.appendChild(btn);
 }
 
-const observer = new MutationObserver(() => {
+const observer = new MutationObserver((mutations) => {
   injectButton();
 });
 
 observer.observe(document.body, { childList: true, subtree: true });
-setTimeout(injectButton, 1000);
+setTimeout(injectButton, 2000);
     `;
     archive.append(contentJs, { name: 'content.js' });
 
@@ -291,7 +315,6 @@ setTimeout(injectButton, 1000);
       }
       
       if (new Date() > activationCode.expiresAt) {
-        // Auto-revoke expired code
         await storage.revokeCode(activationCode.id);
         return res.json({ valid: false, expiresAt: "" });
       }

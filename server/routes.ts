@@ -223,12 +223,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // content.js
     const contentJs = `
+let isProcessing = false;
+
 function injectButton() {
+  if (isProcessing) return;
+  
   const selectors = [
     'textarea',
     '[contenteditable="true"]',
     '.ProseMirror',
-    '#prompt-textarea'
+    '#prompt-textarea',
+    '[data-testid="prompt-input"]'
   ];
   
   let targetTextarea = null;
@@ -247,44 +252,67 @@ function injectButton() {
 
   const btn = document.createElement('button');
   btn.className = 'lovable-improver-btn';
-  btn.innerText = '✨ Melhorar Prompt';
+  btn.innerHTML = '<span>✨</span> Melhorar';
   btn.type = 'button';
-  btn.style.cssText = 'position: absolute; bottom: 8px; right: 40px; background: #000; color: white; border: none; padding: 4px 10px; border-radius: 6px; cursor: pointer; z-index: 10000; font-size: 11px; font-weight: 600; font-family: sans-serif; box-shadow: 0 2px 4px rgba(0,0,0,0.2); transition: all 0.2s;';
+  btn.title = 'Melhorar prompt com IA';
   
-  btn.onmouseover = () => btn.style.background = '#333';
-  btn.onmouseout = () => btn.style.background = '#000';
+  // Minimalist styling to avoid breaking Lovable UI
+  btn.style.cssText = 'position: absolute; bottom: 12px; right: 45px; background: #0f172a; color: white; border: 1px solid #1e293b; padding: 5px 10px; border-radius: 8px; cursor: pointer; z-index: 9999; font-size: 12px; font-weight: 500; font-family: sans-serif; display: flex; align-items: center; gap: 4px; transition: all 0.2s ease;';
+  
+  btn.onmouseover = () => {
+    btn.style.background = '#1e293b';
+    btn.style.transform = 'scale(1.02)';
+  };
+  btn.onmouseout = () => {
+    btn.style.background = '#0f172a';
+    btn.style.transform = 'scale(1)';
+  };
 
   if (window.getComputedStyle(container).position === 'static') {
     container.style.position = 'relative';
   }
 
-  btn.addEventListener('click', (e) => {
+  btn.addEventListener('click', async (e) => {
     e.preventDefault();
     e.stopPropagation();
     
+    if (isProcessing) return;
+
     const currentPrompt = targetTextarea.value || targetTextarea.innerText;
     if (!currentPrompt || currentPrompt.trim() === '') return;
 
-    btn.innerText = '⏳...';
+    isProcessing = true;
+    btn.innerHTML = '<span>⏳</span>...';
+    btn.style.opacity = '0.7';
     btn.disabled = true;
 
-    chrome.runtime.sendMessage({ action: 'improvePrompt', prompt: currentPrompt }, (response) => {
-      btn.innerText = '✨ Melhorar Prompt';
+    chrome.runtime.sendMessage({ action: 'improvePrompt', prompt: currentPrompt.trim() }, (response) => {
+      btn.innerHTML = '<span>✨</span> Melhorar';
+      btn.style.opacity = '1';
       btn.disabled = false;
+      isProcessing = false;
       
       if (response && response.improvedPrompt) {
+        const newValue = response.improvedPrompt;
+        
         if (targetTextarea.tagName === 'TEXTAREA' || targetTextarea.tagName === 'INPUT') {
-          targetTextarea.value = response.improvedPrompt;
-        } else {
-          targetTextarea.innerText = response.improvedPrompt;
+          targetTextarea.value = newValue;
+        } else if (targetTextarea.hasAttribute('contenteditable')) {
+          targetTextarea.innerText = newValue;
         }
         
-        targetTextarea.dispatchEvent(new Event('input', { bubbles: true }));
-        targetTextarea.dispatchEvent(new Event('change', { bubbles: true }));
+        // Use a more standard way to trigger updates without auto-submitting
+        const inputEvent = new Event('input', { bubbles: true });
+        targetTextarea.dispatchEvent(inputEvent);
+        
+        // Avoid 'change' event as it often triggers auto-submit in some frameworks
+        // Only use 'input' which is enough for React/Vue to sync state
       } else if (response && response.error) {
-        alert('Erro ao melhorar prompt: ' + response.error);
-      } else {
-        alert('Erro desconhecido. Verifique sua conexão e o código de ativação na extensão.');
+        console.error('Lovable Improver Error:', response.error);
+        btn.innerHTML = '<span>❌</span> Erro';
+        setTimeout(() => {
+          btn.innerHTML = '<span>✨</span> Melhorar';
+        }, 3000);
       }
     });
   });
@@ -292,8 +320,11 @@ function injectButton() {
   container.appendChild(btn);
 }
 
-const observer = new MutationObserver((mutations) => {
-  injectButton();
+// Debounced observer to prevent performance issues and infinite loops
+let timeout = null;
+const observer = new MutationObserver(() => {
+  if (timeout) clearTimeout(timeout);
+  timeout = setTimeout(injectButton, 500);
 });
 
 observer.observe(document.body, { childList: true, subtree: true });
@@ -345,14 +376,24 @@ setTimeout(injectButton, 2000);
         messages: [
           {
             role: "system",
-            content: "Você é um engenheiro de software especialista em escrever prompts para IAs geradoras de código (como Lovable, Cursor, etc). Seu objetivo é pegar um prompt simples e vago de um usuário e transformá-lo num prompt 100% profissional, detalhado, que especifica tecnologias (React, Tailwind, Node, etc), estrutura de pastas, regras de UI/UX, e boas práticas para evitar bugs e alucinações da IA. Responda APENAS com o novo prompt, sem introduções ou explicações."
+            content: `Você é um Engenheiro de Prompt de Elite especializado em IAs de desenvolvimento (Lovable, Cursor, v0, Bolt). 
+Sua missão é transformar prompts amadores em especificações técnicas de alto nível.
+
+DIRETRIZES PARA O PROMPT MELHORADO:
+1. ARQUITETURA: Especifique tecnologias modernas (React, Tailwind, Shadcn UI, Framer Motion, TypeScript).
+2. UI/UX: Descreva um design limpo, moderno, responsivo e com boas práticas de usabilidade.
+3. DETALHAMENTO: Adicione requisitos de funcionalidades, estados de carregamento e validações que o usuário esqueceu.
+4. ESTRUTURA: Organize o prompt em seções (Visão Geral, Funcionalidades, Estilo, Regras de Negócio).
+5. OBJETIVIDADE: Mantenha o tom técnico e direto. Evite papo furado.
+
+IMPORTANTE: Responda APENAS com o texto final do prompt melhorado. Não diga "Aqui está seu prompt" ou "Prompt melhorado:".`
           },
           {
             role: "user",
-            content: prompt
+            content: `Melhore este prompt para torná-lo 100% profissional e técnico: \n\n${prompt}`
           }
         ],
-        temperature: 0.7,
+        temperature: 0.4, // Menos criatividade, mais precisão técnica
       });
 
       const improvedPrompt = response.choices[0].message.content?.trim() || prompt;

@@ -112,20 +112,39 @@ const BACKEND_URL = "${hostUrl}";
 
 chrome.runtime.onInstalled.addListener(() => {
   chrome.storage.local.set({ backendUrl: BACKEND_URL });
+  console.log('Lovable Improver: Instalada com URL:', BACKEND_URL);
+});
+
+// Escuta mudanças no storage para logar ativação
+chrome.storage.onChanged.addListener((changes, namespace) => {
+  if (changes.activationCode) {
+    console.log('Lovable Improver: Código de ativação alterado:', changes.activationCode.newValue ? 'Ativado' : 'Removido');
+  }
 });
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === 'verifyCode') {
     chrome.storage.local.get(['backendUrl'], (result) => {
       const url = result.backendUrl || BACKEND_URL;
+      console.log('Lovable Improver: Verificando código em:', url);
+      
       fetch(url + '/api/extension/verify', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ code: request.code })
       })
-      .then(res => res.json())
-      .then(data => sendResponse(data))
-      .catch(err => sendResponse({ valid: false, error: err.toString() }));
+      .then(res => {
+        if (!res.ok) throw new Error('Servidor retornou ' + res.status);
+        return res.json();
+      })
+      .then(data => {
+        console.log('Lovable Improver: Resposta de verificação:', data);
+        sendResponse(data);
+      })
+      .catch(err => {
+        console.error('Lovable Improver: Erro na verificação:', err);
+        sendResponse({ valid: false, error: err.toString() });
+      });
     });
     return true;
   }
@@ -146,9 +165,15 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           prompt: request.prompt
         })
       })
-      .then(res => res.json())
+      .then(res => {
+        if (!res.ok) throw new Error('Erro na API: ' + res.status);
+        return res.json();
+      })
       .then(data => sendResponse(data))
-      .catch(err => sendResponse({ error: err.toString() }));
+      .catch(err => {
+        console.error('Lovable Improver: Erro ao melhorar prompt:', err);
+        sendResponse({ error: err.toString() });
+      });
     });
     return true;
   }
@@ -223,10 +248,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // content.js
     const contentJs = `
+console.log('Lovable Improver: Content script carregado.');
+
 function injectButton() {
-  // Removendo a trava de ativação para teste visual imediato
-  // O botão aparecerá, mas só funcionará se houver um código salvo
-  
+  // Tenta encontrar o campo de texto do Lovable
   const selectors = [
     'textarea',
     '[contenteditable="true"]',
@@ -251,7 +276,7 @@ function injectButton() {
 
   if (!target) return;
   
-  // Encontra um container que não seja muito pequeno
+  // Encontra um container adequado
   let container = target.closest('div');
   while (container && container.offsetHeight < 30) {
     container = container.parentElement;
@@ -265,8 +290,8 @@ function injectButton() {
   btn.innerHTML = '✨ Melhorar';
   btn.type = 'button';
   
-  // Estilo ultra-visível e forçado
-  btn.style.cssText = 'position: absolute !important; bottom: 10px !important; right: 60px !important; background: #0f172a !important; color: white !important; border: 2px solid #3b82f6 !important; padding: 8px 16px !important; border-radius: 10px !important; cursor: pointer !important; z-index: 2147483647 !important; font-size: 14px !important; font-weight: bold !important; font-family: sans-serif !important; display: flex !important; align-items: center !important; gap: 8px !important; transition: all 0.2s ease !important; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1) !important;';
+  // Estilo ultra-visível
+  btn.style.cssText = 'position: absolute !important; bottom: 12px !important; right: 60px !important; background: #0f172a !important; color: white !important; border: 2px solid #3b82f6 !important; padding: 8px 16px !important; border-radius: 10px !important; cursor: pointer !important; z-index: 999999999 !important; font-size: 14px !important; font-weight: bold !important; font-family: sans-serif !important; display: flex !important; align-items: center !important; gap: 8px !important; transition: all 0.2s ease !important; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3) !important;';
   
   btn.onmouseover = () => {
     btn.style.background = '#1e293b';
@@ -285,15 +310,19 @@ function injectButton() {
     e.preventDefault();
     e.stopPropagation();
     
+    console.log('Lovable Improver: Botão clicado.');
+    
     chrome.storage.local.get(['activationCode'], (result) => {
+      console.log('Lovable Improver: Código no storage:', result.activationCode);
+      
       if (!result.activationCode) {
-        alert('Por favor, insira o código de ativação no ícone da extensão primeiro!');
+        alert('Por favor, ative a extensão no ícone (popup) com seu código primeiro!');
         return;
       }
 
       const currentPrompt = (target.value || target.innerText || "").trim();
-      if (!currentPrompt) {
-        btn.innerHTML = '⚠️ Vazio';
+      if (!currentPrompt || currentPrompt.length < 2) {
+        btn.innerHTML = '⚠️ Escreva algo';
         setTimeout(() => btn.innerHTML = '✨ Melhorar', 2000);
         return;
       }
@@ -306,29 +335,35 @@ function injectButton() {
         btn.innerHTML = originalHtml;
         btn.disabled = false;
         
+        console.log('Lovable Improver: Resposta da IA:', response);
+        
         if (response && response.improvedPrompt) {
+          const improved = response.improvedPrompt;
           if (target.tagName === 'TEXTAREA' || target.tagName === 'INPUT') {
-            target.value = response.improvedPrompt;
+            target.value = improved;
           } else {
-            target.innerText = response.improvedPrompt;
+            target.innerText = improved;
             if (target.hasAttribute('contenteditable')) {
               target.innerHTML = '';
-              target.appendChild(document.createTextNode(response.improvedPrompt));
+              target.appendChild(document.createTextNode(improved));
             }
           }
+          // Notifica frameworks (React/Vue)
           target.dispatchEvent(new Event('input', { bubbles: true }));
+          target.dispatchEvent(new Event('change', { bubbles: true }));
           target.focus();
         } else {
-          alert('Erro: ' + (response?.error || 'Verifique o código de ativação'));
+          alert('Erro ao melhorar prompt: ' + (response?.error || 'Verifique sua conexão ou código'));
         }
       });
     });
   });
 
   container.appendChild(btn);
-  console.log('Lovable Improver: Botão injetado com sucesso!');
+  console.log('Lovable Improver: Botão injetado.');
 }
 
+// Verifica a cada 1 segundo (robusto para SPAs)
 setInterval(injectButton, 1000);
 injectButton();
     `;

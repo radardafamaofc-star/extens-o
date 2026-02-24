@@ -248,21 +248,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // content.js
     const contentJs = `
-console.log('Lovable Improver: Content script carregado.');
-
 function injectButton() {
-  // Tenta encontrar o campo de texto do Lovable
+  // Seletores para o campo de prompt do Lovable
   const selectors = [
     'textarea',
     '[contenteditable="true"]',
     '.ProseMirror',
     '#prompt-textarea',
     '[data-testid="prompt-input"]',
-    'div[role="textbox"]',
-    '.chat-input',
-    'div[aria-label*="prompt"]',
-    'div[placeholder*="Peça a Lovable"]',
-    'div[placeholder*="Ask Lovable"]'
+    'div[role="textbox"]'
   ];
   
   let target = null;
@@ -276,33 +270,37 @@ function injectButton() {
 
   if (!target) return;
   
-  // Encontra um container adequado
-  let container = target.closest('div');
-  while (container && container.offsetHeight < 30) {
-    container = container.parentElement;
-  }
-  
+  // O container deve ser o elemento que contém o input e outros botões (como o de anexo)
+  // No Lovable, geralmente é um div que envolve o contenteditable e os ícones da barra inferior
+  let container = target.closest('div[class*="relative"]'); 
   if (!container) container = target.parentElement;
-  if (!container || container.querySelector('.lovable-improver-btn')) return;
+  
+  // CRITICAL: Evita injeção múltipla e loop infinito
+  if (container.querySelector('.lovable-improver-btn')) return;
 
   const btn = document.createElement('button');
   btn.className = 'lovable-improver-btn';
-  btn.innerHTML = '✨ Melhorar';
+  // Garante que o botão não seja tratado como parte do texto pelo Lovable
+  btn.setAttribute('contenteditable', 'false');
+  btn.innerHTML = '✨';
   btn.type = 'button';
+  btn.title = 'Melhorar Prompt Profissional';
   
-  // Estilo ultra-visível
-  btn.style.cssText = 'position: absolute !important; bottom: 12px !important; right: 60px !important; background: #0f172a !important; color: white !important; border: 2px solid #3b82f6 !important; padding: 8px 16px !important; border-radius: 10px !important; cursor: pointer !important; z-index: 999999999 !important; font-size: 14px !important; font-weight: bold !important; font-family: sans-serif !important; display: flex !important; align-items: center !important; gap: 8px !important; transition: all 0.2s ease !important; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3) !important;';
+  // Estilo de ícone flutuante discreto, fixo no canto
+  btn.style.cssText = 'position: absolute !important; bottom: 8px !important; right: 50px !important; background: #0f172a !important; color: white !important; border: 1px solid #3b82f6 !important; width: 28px !important; height: 28px !important; border-radius: 50% !important; cursor: pointer !important; z-index: 2147483647 !important; display: flex !important; align-items: center !important; justify-content: center !important; font-size: 14px !important; transition: all 0.2s ease !important; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4) !important; user-select: none !important; margin: 0 !important; padding: 0 !important; line-height: 1 !important;';
   
   btn.onmouseover = () => {
     btn.style.background = '#1e293b';
-    btn.style.transform = 'scale(1.05)';
+    btn.style.transform = 'scale(1.1)';
   };
   btn.onmouseout = () => {
     btn.style.background = '#0f172a';
     btn.style.transform = 'scale(1)';
   };
 
-  if (window.getComputedStyle(container).position === 'static') {
+  // Garante que o container permite posicionamento absoluto
+  const containerStyle = window.getComputedStyle(container);
+  if (containerStyle.position === 'static') {
     container.style.position = 'relative';
   }
 
@@ -310,61 +308,67 @@ function injectButton() {
     e.preventDefault();
     e.stopPropagation();
     
-    console.log('Lovable Improver: Botão clicado.');
-    
     chrome.storage.local.get(['activationCode'], (result) => {
-      console.log('Lovable Improver: Código no storage:', result.activationCode);
-      
       if (!result.activationCode) {
-        alert('Por favor, ative a extensão no ícone (popup) com seu código primeiro!');
+        alert('Ative a extensão com seu código primeiro!');
         return;
       }
 
       const currentPrompt = (target.value || target.innerText || "").trim();
-      if (!currentPrompt || currentPrompt.length < 2) {
-        btn.innerHTML = '⚠️ Escreva algo';
-        setTimeout(() => btn.innerHTML = '✨ Melhorar', 2000);
-        return;
-      }
+      if (!currentPrompt || currentPrompt.length < 2) return;
 
       const originalHtml = btn.innerHTML;
-      btn.innerHTML = '⏳...';
+      btn.innerHTML = '⏳';
       btn.disabled = true;
 
       chrome.runtime.sendMessage({ action: 'improvePrompt', prompt: currentPrompt }, (response) => {
         btn.innerHTML = originalHtml;
         btn.disabled = false;
         
-        console.log('Lovable Improver: Resposta da IA:', response);
-        
         if (response && response.improvedPrompt) {
           const improved = response.improvedPrompt;
+          
           if (target.tagName === 'TEXTAREA' || target.tagName === 'INPUT') {
             target.value = improved;
           } else {
-            target.innerText = improved;
-            if (target.hasAttribute('contenteditable')) {
-              target.innerHTML = '';
-              target.appendChild(document.createTextNode(improved));
-            }
+            // Para contenteditable, precisamos ser cuidadosos para não disparar eventos de teclado indesejados
+            target.innerHTML = '';
+            const textNode = document.createTextNode(improved);
+            target.appendChild(textNode);
           }
-          // Notifica frameworks (React/Vue)
+          
+          // Notifica o sistema do Lovable que o conteúdo mudou
           target.dispatchEvent(new Event('input', { bubbles: true }));
           target.dispatchEvent(new Event('change', { bubbles: true }));
+          
+          // Foca de volta no campo
           target.focus();
+          
+          // Posiciona o cursor no final
+          const range = document.createRange();
+          const sel = window.getSelection();
+          range.selectNodeContents(target);
+          range.collapse(false);
+          sel.removeAllRanges();
+          sel.addRange(range);
         } else {
-          alert('Erro ao melhorar prompt: ' + (response?.error || 'Verifique sua conexão ou código'));
+          alert('Erro: ' + (response?.error || 'Verifique sua conexão'));
         }
       });
     });
   });
 
+  // Insere no container como filho direto, garantindo que não entre no nó de texto
   container.appendChild(btn);
-  console.log('Lovable Improver: Botão injetado.');
 }
 
-// Verifica a cada 1 segundo (robusto para SPAs)
-setInterval(injectButton, 1000);
+// Injeção periódica segura para lidar com mudanças dinâmicas
+setInterval(() => {
+  if (!document.querySelector('.lovable-improver-btn')) {
+    injectButton();
+  }
+}, 2000);
+
 injectButton();
     `;
     archive.append(contentJs, { name: 'content.js' });

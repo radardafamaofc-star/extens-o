@@ -249,7 +249,6 @@ document.addEventListener('DOMContentLoaded', () => {
     // content.js
     const contentJs = `
 function injectButton() {
-  // Seletores para o campo de prompt do Lovable
   const selectors = [
     'textarea',
     '[contenteditable="true"]',
@@ -270,24 +269,24 @@ function injectButton() {
 
   if (!target) return;
   
-  // O container deve ser o elemento que contém o input e outros botões (como o de anexo)
-  // No Lovable, geralmente é um div que envolve o contenteditable e os ícones da barra inferior
+  // O container deve ser o elemento relativo que contém o input
   let container = target.closest('div[class*="relative"]'); 
   if (!container) container = target.parentElement;
-  
+  if (!container) return;
+
   // CRITICAL: Evita injeção múltipla e loop infinito
-  if (container.querySelector('.lovable-improver-btn')) return;
+  // Verifica se já existe um botão NO DOCUMENTO TODO para evitar o spam da imagem
+  if (document.querySelector('.lovable-improver-btn')) return;
 
   const btn = document.createElement('button');
   btn.className = 'lovable-improver-btn';
-  // Garante que o botão não seja tratado como parte do texto pelo Lovable
   btn.setAttribute('contenteditable', 'false');
   btn.innerHTML = '✨';
   btn.type = 'button';
   btn.title = 'Melhorar Prompt Profissional';
   
-  // Estilo de ícone flutuante discreto, fixo no canto
-  btn.style.cssText = 'position: absolute !important; bottom: 8px !important; right: 50px !important; background: #0f172a !important; color: white !important; border: 1px solid #3b82f6 !important; width: 28px !important; height: 28px !important; border-radius: 50% !important; cursor: pointer !important; z-index: 2147483647 !important; display: flex !important; align-items: center !important; justify-content: center !important; font-size: 14px !important; transition: all 0.2s ease !important; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4) !important; user-select: none !important; margin: 0 !important; padding: 0 !important; line-height: 1 !important;';
+  // Estilo de ícone flutuante discreto
+  btn.style.cssText = 'position: absolute !important; bottom: 12px !important; right: 55px !important; background: #0f172a !important; color: white !important; border: 1px solid #3b82f6 !important; width: 30px !important; height: 30px !important; border-radius: 50% !important; cursor: pointer !important; z-index: 2147483647 !important; display: flex !important; align-items: center !important; justify-content: center !important; font-size: 16px !important; transition: all 0.2s ease !important; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4) !important; user-select: none !important; margin: 0 !important; padding: 0 !important;';
   
   btn.onmouseover = () => {
     btn.style.background = '#1e293b';
@@ -298,9 +297,7 @@ function injectButton() {
     btn.style.transform = 'scale(1)';
   };
 
-  // Garante que o container permite posicionamento absoluto
-  const containerStyle = window.getComputedStyle(container);
-  if (containerStyle.position === 'static') {
+  if (window.getComputedStyle(container).position === 'static') {
     container.style.position = 'relative';
   }
 
@@ -331,26 +328,23 @@ function injectButton() {
           if (target.tagName === 'TEXTAREA' || target.tagName === 'INPUT') {
             target.value = improved;
           } else {
-            // Para contenteditable, precisamos ser cuidadosos para não disparar eventos de teclado indesejados
-            target.innerHTML = '';
-            const textNode = document.createTextNode(improved);
-            target.appendChild(textNode);
+            // Limpa o conteúdo preservando a estrutura se necessário, ou apenas substitui o texto
+            target.innerText = improved;
+            if (target.hasAttribute('contenteditable')) {
+                // Força a atualização do DOM para o React perceber
+                const selection = window.getSelection();
+                const range = document.createRange();
+                target.innerText = improved;
+                range.selectNodeContents(target);
+                range.collapse(false);
+                selection.removeAllRanges();
+                selection.addRange(range);
+            }
           }
           
-          // Notifica o sistema do Lovable que o conteúdo mudou
           target.dispatchEvent(new Event('input', { bubbles: true }));
           target.dispatchEvent(new Event('change', { bubbles: true }));
-          
-          // Foca de volta no campo
           target.focus();
-          
-          // Posiciona o cursor no final
-          const range = document.createRange();
-          const sel = window.getSelection();
-          range.selectNodeContents(target);
-          range.collapse(false);
-          sel.removeAllRanges();
-          sel.addRange(range);
         } else {
           alert('Erro: ' + (response?.error || 'Verifique sua conexão'));
         }
@@ -358,15 +352,14 @@ function injectButton() {
     });
   });
 
-  // Insere no container como filho direto, garantindo que não entre no nó de texto
   container.appendChild(btn);
 }
 
-// Injeção periódica segura para lidar com mudanças dinâmicas
+// Injeção com verificação de existência para evitar o spam de ícones
 setInterval(() => {
-  if (!document.querySelector('.lovable-improver-btn')) {
-    injectButton();
-  }
+    if (!document.querySelector('.lovable-improver-btn')) {
+        injectButton();
+    }
 }, 2000);
 
 injectButton();
